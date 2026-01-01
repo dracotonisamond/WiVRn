@@ -38,8 +38,7 @@ class wivrn_server;
 class Settings : public QObject
 {
 	Q_OBJECT
-	QML_NAMED_ELEMENT(Settings)
-	QML_SINGLETON
+	QML_ELEMENT
 public:
 	enum encoder_name
 	{
@@ -66,17 +65,17 @@ public:
 	Q_PROPERTY(QList<video_codec> allowedCodecs READ allowedCodecs NOTIFY encoderChanged)
 	Q_PROPERTY(bool can10bit READ can10bit NOTIFY codecChanged)
 	Q_PROPERTY(bool tenbit READ tenbit WRITE set_tenbit NOTIFY tenbitChanged)
+	Q_PROPERTY(int bitrate READ bitrate WRITE set_bitrate NOTIFY bitrateChanged)
+	Q_PROPERTY(float scale READ scale WRITE set_scale NOTIFY scaleChanged)
 
 	Q_PROPERTY(bool tcpOnly READ tcpOnly WRITE set_tcpOnly NOTIFY tcpOnlyChanged)
 	Q_PROPERTY(QString application READ application WRITE set_application NOTIFY applicationChanged)
 	Q_PROPERTY(QString openvr READ openvr WRITE set_openvr NOTIFY openvrChanged)
 
-	Q_PROPERTY(bool hidForwarding READ hidForwarding WRITE set_hidForwarding NOTIFY hidForwardingChanged)
 	Q_PROPERTY(bool debugGui READ debugGui WRITE set_debugGui NOTIFY debugGuiChanged)
 	Q_PROPERTY(bool steamVrLh READ steamVrLh WRITE set_steamVrLh NOTIFY steamVrLhChanged)
 
 	Q_PROPERTY(bool flatpak READ flatpak CONSTANT)
-	Q_PROPERTY(bool hid_forwarding_supported READ hid_forwarding CONSTANT)
 	Q_PROPERTY(bool debug_gui_supported READ debug_gui CONSTANT)
 	Q_PROPERTY(bool steamvr_lh_supported READ steamvr_lh CONSTANT)
 
@@ -84,15 +83,15 @@ public:
 	SETTER_GETTER_NOTIFY(encoder_name, encoder)
 	SETTER_GETTER_NOTIFY(video_codec, codec)
 	SETTER_GETTER_NOTIFY(bool, tenbit)
+	SETTER_GETTER_NOTIFY(int, bitrate)
+	SETTER_GETTER_NOTIFY(float, scale)
 	SETTER_GETTER_NOTIFY(QString, application)
-	SETTER_GETTER_NOTIFY(bool, hidForwarding)
 	SETTER_GETTER_NOTIFY(bool, debugGui)
 	SETTER_GETTER_NOTIFY(bool, steamVrLh)
 	SETTER_GETTER_NOTIFY(bool, tcpOnly)
 	SETTER_GETTER_NOTIFY(QString, openvr)
 private:
 	nlohmann::json m_jsonSettings = nlohmann::json::object();
-	nlohmann::json m_originalSettings;
 	void emitAllChanged();
 
 public:
@@ -109,15 +108,11 @@ public:
 	bool flatpak() const;
 	bool debug_gui() const;
 	bool steamvr_lh() const;
-	bool hid_forwarding() const;
 
 	static encoder_name encoder_id_from_string(std::string_view s);
 	static video_codec codec_id_from_string(std::string_view s);
 	static const std::string & encoder_from_id(encoder_name id);
 	static const std::string & codec_from_id(video_codec id);
-
-Q_SIGNALS:
-	void settingsChanged();
 };
 
 #undef SETTER_GETTER_NOTIFY

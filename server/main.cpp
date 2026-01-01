@@ -178,6 +178,7 @@ static std::string steam_command()
 
 namespace
 {
+int stdin_pipe_fds[2];
 int control_pipe_fds[2];
 
 GMainLoop * main_loop;
@@ -237,6 +238,14 @@ void start_server(configuration config)
 	}
 	else if (server_pid == 0)
 	{
+		if (do_fork)
+		{
+			// Redirect stdin
+			dup2(stdin_pipe_fds[0], 0);
+			close(stdin_pipe_fds[0]);
+			close(stdin_pipe_fds[1]);
+		}
+
 		// foveation code does not allow oversampling
 		setenv("XRT_COMPOSITOR_SCALE_PERCENTAGE", "100", true);
 
@@ -255,7 +264,6 @@ void start_server(configuration config)
 		                .open = U_DEBUG_GUI_OPEN_NEVER,
 #endif
 		        },
-		        .no_stdin = true,
 		};
 
 		try
@@ -276,9 +284,7 @@ void start_server(configuration config)
 
 		assert(server_watch == 0);
 		assert(server_kill_watch == 0);
-		wivrn_server_set_session_running(dbus_server, true);
 		server_watch = g_child_watch_add(server_pid, [](pid_t, int status, void *) {
-			wivrn_server_set_session_running(dbus_server, false);
 			display_child_status(status, "Server");
 			g_source_remove(server_watch);
 			if (server_kill_watch)
@@ -296,7 +302,10 @@ void start_server(configuration config)
 
 void kill_server()
 {
-	wivrn_ipc_socket_main_loop->send(to_monado::stop{});
+	// Write to the server's stdin to make it quit
+	char buffer[] = "\n";
+	if (write(stdin_pipe_fds[1], &buffer, strlen(buffer)) < 0)
+		std::cerr << "Cannot stop monado properly." << std::endl;
 
 	// Send SIGTERM after 1s if it is still running
 	server_kill_watch = g_timeout_add(1000, [](void *) {
@@ -503,13 +512,9 @@ gboolean control_received(gint fd, GIOCondition condition, gpointer user_data)
 	{
 		std::visit(utils::overloaded{
 		                   [&](const wivrn::from_headset::headset_info_packet & info) {
-			                   on_headset_info_packet(info);
+			                   on_headset_info_packet(std::get<wivrn::from_headset::headset_info_packet>(*packet));
 			                   inhibitor.emplace();
 			                   wivrn_server_set_headset_connected(dbus_server, true);
-		                   },
-		                   [&](const wivrn::from_headset::settings_changed & settings) {
-			                   wivrn_server_set_preferred_refresh_rate(dbus_server, settings.preferred_refresh_rate);
-			                   wivrn_server_set_bitrate(dbus_server, settings.bitrate_bps);
 		                   },
 		                   [&](const wivrn::from_headset::start_app & request) {
 			                   const auto & apps = list_applications();
@@ -525,6 +530,9 @@ gboolean control_received(gint fd, GIOCondition condition, gpointer user_data)
 			                   start_publishing();
 			                   inhibitor.reset();
 			                   wivrn_server_set_headset_connected(dbus_server, false);
+		                   },
+		                   [&](const from_monado::bitrate_changed & value) {
+			                   wivrn_server_set_bitrate(dbus_server, value.bitrate_bps);
 		                   },
 		                   [&](const from_monado::server_error & e) {
 			                   wivrn_server_emit_server_error(dbus_server, e.where.c_str(), e.message.c_str());
@@ -722,6 +730,9 @@ void on_headset_info_packet(const wivrn::from_headset::headset_info_packet & inf
 {
 	GVariantBuilder * builder;
 
+	GVariant * value_eye_size = g_variant_new("(uu)", info.recommended_eye_width, info.recommended_eye_height);
+	wivrn_server_set_recommended_eye_size(dbus_server, value_eye_size);
+
 	builder = g_variant_builder_new(G_VARIANT_TYPE("ad"));
 	for (double rate: info.available_refresh_rates)
 	{
@@ -731,9 +742,7 @@ void on_headset_info_packet(const wivrn::from_headset::headset_info_packet & inf
 	g_variant_builder_unref(builder);
 	wivrn_server_set_available_refresh_rates(dbus_server, value_refresh_rates);
 
-	wivrn_server_set_preferred_refresh_rate(dbus_server, info.settings.preferred_refresh_rate);
-
-	wivrn_server_set_bitrate(dbus_server, info.settings.bitrate_bps);
+	wivrn_server_set_preferred_refresh_rate(dbus_server, info.preferred_refresh_rate);
 
 	auto speaker = info.speaker.value_or(wivrn::from_headset::headset_info_packet::audio_description{});
 	wivrn_server_set_speaker_channels(dbus_server, speaker.num_channels);
@@ -904,6 +913,15 @@ int inner_main(int argc, char * argv[], bool show_instructions)
 	// avahi glib integration
 	AvahiGLibPoll * glib_poll = avahi_glib_poll_new(main_context, G_PRIORITY_DEFAULT);
 	poll_api = avahi_glib_poll_get(glib_poll);
+
+	// Create a pipe to quit monado properly
+	if (pipe(stdin_pipe_fds) < 0)
+	{
+		perror("pipe");
+		return wivrn_exit_code::cannot_create_pipe;
+	}
+	fcntl(stdin_pipe_fds[0], F_SETFD, FD_CLOEXEC);
+	fcntl(stdin_pipe_fds[1], F_SETFD, FD_CLOEXEC);
 
 	// Create a socket to report monado status to the main loop
 	if (socketpair(AF_UNIX, SOCK_DGRAM, 0, control_pipe_fds) < 0)

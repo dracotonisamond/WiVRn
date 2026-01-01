@@ -24,10 +24,10 @@
 #include "utils/thread_safe.h"
 #include "wivrn_connection.h"
 #include "wivrn_controller.h"
+#include "wivrn_hand_interaction.h"
 #include "wivrn_hmd.h"
 #include "wivrn_ipc.h"
 #include "wivrn_packets.h"
-#include "wivrn_uinput.h"
 #include "xrt/xrt_results.h"
 #include "xrt/xrt_system.h"
 #include <atomic>
@@ -47,7 +47,6 @@ union xrt_session_event;
 namespace wivrn
 {
 class wivrn_eye_tracker;
-class wivrn_android_face_tracker;
 class wivrn_fb_face2_tracker;
 class wivrn_htc_face_tracker;
 class wivrn_generic_tracker;
@@ -116,18 +115,16 @@ class wivrn_session : public xrt_system_devices
 	wivrn_hmd hmd;
 	wivrn_controller left_controller;
 	int32_t left_controller_index;
+	wivrn_hand_interaction left_hand_interaction;
+	int32_t left_hand_interaction_index;
 	wivrn_controller right_controller;
 	int32_t right_controller_index;
-	wivrn_controller left_hand_interaction;
-	int32_t left_hand_interaction_index;
-	wivrn_controller right_hand_interaction;
+	wivrn_hand_interaction right_hand_interaction;
 	int32_t right_hand_interaction_index;
 	std::unique_ptr<wivrn_eye_tracker> eye_tracker;
-	std::unique_ptr<wivrn_android_face_tracker> android_face_tracker;
 	std::unique_ptr<wivrn_fb_face2_tracker> fb_face2_tracker;
 	std::unique_ptr<wivrn_htc_face_tracker> htc_face_tracker;
 	std::vector<std::unique_ptr<wivrn_generic_tracker>> generic_trackers;
-	std::optional<wivrn_uinput> uinput_handler;
 
 	std::shared_mutex comp_target_mutex;
 	wivrn_comp_target * comp_target;
@@ -139,11 +136,8 @@ class wivrn_session : public xrt_system_devices
 
 	std::shared_ptr<audio_device> audio_handle;
 
-	// run-time editable settings
-	thread_safe<from_headset::settings_changed> settings;
-
-	// when sessions shall be destroyed, key is client id, value is timestamp
-	thread_safe<std::map<uint32_t, int64_t>> session_loss;
+	// when sessions shall be destroyed, key is timestap, value is client id
+	thread_safe<std::map<int64_t, int32_t>> session_loss;
 
 	std::jthread thread;
 
@@ -161,20 +155,12 @@ public:
 	void start(ipc_server *);
 	void stop();
 
-	bool request_stop();
-	void quit_if_no_client();
-
 	clock_offset get_offset();
 	bool connected();
-	const from_headset::headset_info_packet & get_info() const
+	const from_headset::headset_info_packet & get_info()
 	{
 		return connection->info();
 	};
-
-	locked<from_headset::settings_changed> get_settings()
-	{
-		return settings.lock();
-	}
 
 	void unset_comp_target();
 
@@ -196,7 +182,6 @@ public:
 	void operator()(from_headset::pin_check_1 &&) {}
 	void operator()(from_headset::pin_check_3 &&) {}
 	void operator()(from_headset::headset_info_packet &&);
-	void operator()(const from_headset::settings_changed &);
 	void operator()(from_headset::handshake &&) {}
 	void operator()(from_headset::trackings &&);
 	void operator()(const from_headset::tracking &);
@@ -204,7 +189,6 @@ public:
 	void operator()(from_headset::hand_tracking &&);
 	void operator()(from_headset::body_tracking &&);
 	void operator()(from_headset::inputs &&);
-	void operator()(from_headset::hid::input && e);
 	void operator()(from_headset::timesync_response &&);
 	void operator()(from_headset::feedback &&);
 	void operator()(from_headset::battery &&);
@@ -220,7 +204,6 @@ public:
 	void operator()(const from_headset::stop_application &);
 	void operator()(audio_data &&);
 
-	void operator()(to_monado::stop &&);
 	void operator()(to_monado::disconnect &&);
 	void operator()(to_monado::set_bitrate &&);
 
@@ -248,7 +231,7 @@ public:
 
 private:
 	void run(std::stop_token stop);
-	void reconnect(std::stop_token stop);
+	void reconnect();
 
 	void poll_session_loss();
 

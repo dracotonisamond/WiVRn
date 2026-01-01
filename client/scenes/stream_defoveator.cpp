@@ -295,7 +295,7 @@ static size_t required_vertices(const wivrn::to_headset::foveation_parameter & p
 
 void stream_defoveator::defoveate(vk::raii::CommandBuffer & command_buffer,
                                   const std::array<wivrn::to_headset::foveation_parameter, 2> & foveation,
-                                  const std::array<input, 2> & inputs,
+                                  std::span<wivrn::blitter::output> inputs,
                                   int destination)
 {
 	if (destination < 0 || destination >= (int)output_images.size())

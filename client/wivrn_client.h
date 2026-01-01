@@ -46,9 +46,6 @@ private:
 	control_socket_t control;
 	stream_socket_t stream;
 
-	std::atomic<uint64_t> bytes_sent_ = 0;
-	std::atomic<uint64_t> bytes_received_ = 0;
-
 	template <typename T>
 	void handshake(T address, bool tcp_only, crypto::key & headset_keypair, std::function<std::string(int fd)> pin_enter);
 
@@ -63,16 +60,16 @@ public:
 	template <typename T>
 	void send_control(T && packet)
 	{
-		bytes_sent_ += control.send(std::forward<T>(packet));
+		control.send(std::forward<T>(packet));
 	}
 
 	template <typename T>
 	void send_stream(T && packet)
 	{
 		if (stream)
-			bytes_sent_ += stream.send(std::forward<T>(packet));
+			stream.send(std::forward<T>(packet));
 		else
-			bytes_sent_ += control.send(std::forward<T>(packet));
+			control.send(std::forward<T>(packet));
 	}
 
 	template <typename T>
@@ -84,9 +81,9 @@ public:
 		fds[1].events = POLLIN;
 		fds[1].fd = control.get_fd();
 
-		while (auto packet = stream.receive_pending(&bytes_received_))
+		while (auto packet = stream.receive_pending())
 			std::visit(std::forward<T>(visitor), std::move(*packet));
-		while (auto packet = control.receive_pending(&bytes_received_))
+		while (auto packet = control.receive_pending())
 			std::visit(std::forward<T>(visitor), std::move(*packet));
 
 		int r = ::poll(fds, std::size(fds), timeout.count());
@@ -101,16 +98,14 @@ public:
 
 		if (fds[0].revents & POLLIN)
 		{
-			auto packet = stream.receive(&bytes_received_);
+			auto packet = stream.receive();
 			if (packet)
-			{
 				std::visit(std::forward<T>(visitor), std::move(*packet));
-			}
 		}
 
 		if (fds[1].revents & POLLIN)
 		{
-			auto packet = control.receive(&bytes_received_);
+			auto packet = control.receive();
 			if (packet)
 				std::visit(std::forward<T>(visitor), std::move(*packet));
 		}
@@ -120,11 +115,11 @@ public:
 
 	uint64_t bytes_received() const
 	{
-		return bytes_received_;
+		return control.bytes_received() + stream.bytes_received();
 	}
 
 	uint64_t bytes_sent() const
 	{
-		return bytes_sent_;
+		return control.bytes_sent() + stream.bytes_sent();
 	}
 };

@@ -24,7 +24,6 @@
 #include "scene.h"
 #include "spdlog/common.h"
 #include "spdlog/spdlog.h"
-#include "utils/class_from_member.h"
 #include "utils/contains.h"
 #include "utils/files.h"
 #include "utils/i18n.h"
@@ -762,7 +761,6 @@ void application::initialize_vulkan()
 	vk_device_extensions.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
 	vk_device_extensions.push_back(VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME);
 	vk_device_extensions.push_back(VK_KHR_MULTIVIEW_EXTENSION_NAME);
-	optional_device_extensions.emplace(VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME);
 	optional_device_extensions.emplace(VK_IMG_FILTER_CUBIC_EXTENSION_NAME);
 	optional_device_extensions.emplace(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
 	optional_device_extensions.emplace(VK_EXT_FRAGMENT_DENSITY_MAP_EXTENSION_NAME);
@@ -886,30 +884,24 @@ void application::initialize_vulkan()
 	        vk::PhysicalDeviceSamplerYcbcrConversionFeaturesKHR{
 	                .samplerYcbcrConversion = true,
 	        },
-	        vk::PhysicalDeviceTimelineSemaphoreFeaturesKHR{},
+	        vk::PhysicalDeviceTimelineSemaphoreFeaturesKHR{
+	                .timelineSemaphore = true,
+	        },
 	        vk::PhysicalDeviceMultiviewFeaturesKHR{
 	                .multiview = true,
 	        },
-	        vk::PhysicalDeviceIndexTypeUint8FeaturesEXT{}};
-
-	auto check_feature_flag = [&](auto feature_flag, const char * extension_name) -> bool {
-		using FeatureStruct = class_from_member_t<decltype(feature_flag)>;
-
-		if (utils::contains(vk_device_extensions, extension_name) and
-		    vk_physical_device.getFeatures2<vk::PhysicalDeviceFeatures2, FeatureStruct>().template get<FeatureStruct>().*feature_flag)
-		{
-			device_create_info.get<FeatureStruct>().*feature_flag = true;
-			return true;
-		}
-		else
-		{
-			device_create_info.unlink<FeatureStruct>();
-			return false;
-		}
 	};
 
-	check_feature_flag(&vk::PhysicalDeviceTimelineSemaphoreFeaturesKHR::timelineSemaphore, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
-	check_feature_flag(&vk::PhysicalDeviceIndexTypeUint8FeaturesEXT::indexTypeUint8, VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME);
+	if (utils::contains(vk_device_extensions, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME))
+	{
+		auto [_, feat] = vk_physical_device.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceTimelineSemaphoreFeaturesKHR>();
+		auto & create_feat = device_create_info.get<vk::PhysicalDeviceTimelineSemaphoreFeaturesKHR>();
+		create_feat.timelineSemaphore = feat.timelineSemaphore;
+	}
+	else
+	{
+		device_create_info.unlink<vk::PhysicalDeviceTimelineSemaphoreFeaturesKHR>();
+	}
 
 	vk_device = xr_system_id.create_device(vk_physical_device, device_create_info.get());
 	*vk_queue.lock() = vk_device.getQueue(vk_queue_family_index, 0);
@@ -1059,19 +1051,6 @@ void application::initialize_actions()
 				profile.input_sources.push_back("/user/hand/left/input/palm_ext/pose");
 				profile.input_sources.push_back("/user/hand/right/input/palm_ext/pose");
 			}
-		}
-
-		// Patch profile to add pinch_ext/pose and poke_ext/pose
-		if (xr_instance.has_extension(XR_EXT_HAND_INTERACTION_EXTENSION_NAME)             //
-		    and utils::contains(profile.input_sources, "/user/hand/left/input/grip/pose") //
-		    and not utils::contains(profile.input_sources, "/user/hand/left/input/pinch_ext/pose"))
-		{
-			spdlog::info("Adding pinch_ext/pose for interaction profile {}", profile.profile_name);
-			profile.input_sources.push_back("/user/hand/left/input/pinch_ext/pose");
-			profile.input_sources.push_back("/user/hand/right/input/pinch_ext/pose");
-			spdlog::info("Adding poke_ext/pose for interaction profile {}", profile.profile_name);
-			profile.input_sources.push_back("/user/hand/left/input/poke_ext/pose");
-			profile.input_sources.push_back("/user/hand/right/input/poke_ext/pose");
 		}
 
 		// Dynamically add VIVE XR Trackers to the profile if available
@@ -1232,8 +1211,6 @@ void application::initialize()
 	        XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME,
 	        XR_EXT_USER_PRESENCE_EXTENSION_NAME,
 
-	        XR_ANDROID_FACE_TRACKING_EXTENSION_NAME,
-
 	        XR_BD_BODY_TRACKING_EXTENSION_NAME,
 
 	        XR_FB_BODY_TRACKING_EXTENSION_NAME,
@@ -1255,7 +1232,6 @@ void application::initialize()
 
 	        XR_META_BODY_TRACKING_FIDELITY_EXTENSION_NAME,
 	        XR_META_BODY_TRACKING_FULL_BODY_EXTENSION_NAME,
-	        XR_META_LOCAL_DIMMING_EXTENSION_NAME,
 	};
 
 	for (const auto & i: interaction_profiles)
@@ -1526,26 +1502,6 @@ application::application(application_info info) :
 				static_cast<application *>(app->userData)->native_window = nullptr;
 				break;
 		}
-	};
-
-	// capture pointer to receive relative mouse events
-	app_info.native_app->activity->callbacks->onWindowFocusChanged = [](ANativeActivity * activity, int has_focus) {
-		if (has_focus)
-			android_hid::request_pointer_capture(activity);
-		else
-			android_hid::release_pointer_capture(activity);
-	};
-
-	app_info.native_app->onInputEvent = [](android_app * app, AInputEvent * event) {
-		auto app_instance = static_cast<application *>(app->userData);
-
-		std::unique_lock _{app_instance->scene_stack_lock};
-		if (!app_instance->scene_stack.empty())
-		{
-			auto scene = app_instance->scene_stack.back();
-			return app_instance->input_handler.handle_input(scene.get(), event) ? 1 : 0;
-		}
-		return 0;
 	};
 
 	wifi = wifi_lock::make_wifi_lock(app_info.native_app->activity->clazz);

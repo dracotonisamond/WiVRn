@@ -542,11 +542,12 @@ std::optional<glm::vec3> scenes::lobby::check_recenter_action(XrTime predicted_d
 	{
 		// First frame of recentering
 		imgui_context::controller_state state{
+		        .active = true,
 		        .aim_position = aim->first,
 		        .aim_orientation = aim->second,
 		};
 
-		state.pointer_position = imgui_ctx->compute_pointer_position(state).first;
+		imgui_ctx->compute_pointer_position(state);
 
 		if (state.pointer_position) // TODO: check that the pointer is inside an imgui window
 		{
@@ -1064,14 +1065,7 @@ void scenes::lobby::render(const XrFrameState & frame_state)
 			ray_limits.push_back(compute_ray_limits(layer.pose));
 	}
 
-	input->apply(world,
-	             world_space,
-	             frame_state.predictedDisplayTime,
-	             hide_left_controller,
-	             not imgui_ctx->is_aim_interaction()[0],
-	             hide_right_controller,
-	             not imgui_ctx->is_aim_interaction()[1],
-	             ray_limits);
+	input->apply(world, world_space, frame_state.predictedDisplayTime, hide_left_controller, hide_right_controller, ray_limits);
 
 	renderer::animate(world, frame_state.predictedDisplayPeriod * 1.0e-9);
 
@@ -1202,14 +1196,6 @@ void scenes::lobby::on_focused()
 	recenter_left_action = get_action("recenter_left").first;
 	recenter_right_action = get_action("recenter_right").first;
 
-	if (system.hand_tracking_supported())
-	{
-		left_hand = session.create_hand_tracker(XR_HAND_LEFT_EXT);
-		right_hand = session.create_hand_tracker(XR_HAND_RIGHT_EXT);
-		hand_model::add_hand(*this, XR_HAND_LEFT_EXT, "assets://left-hand.glb", layer_controllers);
-		hand_model::add_hand(*this, XR_HAND_RIGHT_EXT, "assets://right-hand.glb", layer_controllers);
-	}
-
 	std::vector imgui_inputs{
 	        imgui_context::controller{
 	                .aim = get_action_space("left_aim"),
@@ -1218,7 +1204,6 @@ void scenes::lobby::on_focused()
 	                .squeeze = get_action("left_squeeze").first,
 	                .scroll = get_action("left_scroll").first,
 	                .haptic_output = get_action("left_haptic").first,
-	                .hand = left_hand ? &*left_hand : nullptr,
 	        },
 	        imgui_context::controller{
 	                .aim = get_action_space("right_aim"),
@@ -1227,9 +1212,20 @@ void scenes::lobby::on_focused()
 	                .squeeze = get_action("right_squeeze").first,
 	                .scroll = get_action("right_scroll").first,
 	                .haptic_output = get_action("right_haptic").first,
-	                .hand = right_hand ? &*right_hand : nullptr,
 	        },
 	};
+
+	if (system.hand_tracking_supported())
+	{
+		left_hand = session.create_hand_tracker(XR_HAND_LEFT_EXT);
+		right_hand = session.create_hand_tracker(XR_HAND_RIGHT_EXT);
+		hand_model::add_hand(*this, XR_HAND_LEFT_EXT, "assets://left-hand.glb", layer_controllers);
+		hand_model::add_hand(*this, XR_HAND_RIGHT_EXT, "assets://right-hand.glb", layer_controllers);
+		imgui_inputs.push_back({.hand = &*left_hand});
+		imgui_inputs.push_back({.hand = &*right_hand});
+	}
+
+	face_tracker = xr::make_face_tracker(instance, system, session);
 
 	// 0.4mm / pixel
 	std::vector<imgui_context::viewport> vps{
@@ -1281,22 +1277,11 @@ void scenes::lobby::on_focused()
 	        vps,
 	        image_cache);
 
-	supported_codecs = wivrn::decoder::supported_codecs();
-
 	auto t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 	auto tm = std::localtime(&t);
-	switch (tm->tm_mon)
-	{
-		case 5:
-			about_picture = imgui_ctx->load_texture("assets://wivrn-pride.ktx2");
-			break;
-		case 11:
-			about_picture = imgui_ctx->load_texture("assets://wivrn-christmas.ktx2");
-			break;
-		default:
-			about_picture = imgui_ctx->load_texture("assets://wivrn.ktx2");
-			break;
-	}
+	std::string image = tm->tm_mon == 5 ? "wivrn-pride" : "wivrn";
+
+	about_picture = imgui_ctx->load_texture("assets://" + image + ".ktx2");
 
 	default_environment_screenshot = imgui_ctx->load_texture("assets://default-environment.ktx2");
 
@@ -1456,17 +1441,6 @@ scene::meta & scenes::lobby::get_meta_scene()
 	                                {"right_aim", "/user/hand/right/input/aim/pose"},
 	                                {"right_trigger", "/user/hand/right/input/select/click"},
 	                                {"right_squeeze", "/user/hand/right/input/menu/click"},
-	                        },
-	                },
-	                suggested_binding{
-	                        {
-	                                "/interaction_profiles/ext/hand_interaction_ext",
-	                        },
-	                        {
-	                                {"left_aim", "/user/hand/left/input/aim/pose"},
-	                                {"left_trigger", "/user/hand/left/input/aim_activate_ext"},
-	                                {"right_aim", "/user/hand/right/input/aim/pose"},
-	                                {"right_trigger", "/user/hand/right/input/aim_activate_ext"},
 	                        },
 	                },
 	        }};

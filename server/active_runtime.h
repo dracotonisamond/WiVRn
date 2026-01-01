@@ -20,14 +20,13 @@
 
 #include <filesystem>
 #include <unistd.h>
-#include <vector>
 
 namespace wivrn
 {
 
 class active_runtime
 {
-	std::vector<std::filesystem::path> active_runtime_json;
+	std::filesystem::path active_runtime_json;
 	std::filesystem::path openvr_manifest;
 	pid_t pid;
 
@@ -37,7 +36,7 @@ public:
 	active_runtime & operator=(const active_runtime &) = delete;
 	~active_runtime();
 
-	static std::vector<std::filesystem::path> manifest_path();
+	static std::filesystem::path manifest_path();
 	static std::filesystem::path openvr_compat_path();
 };
 } // namespace wivrn

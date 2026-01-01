@@ -67,6 +67,7 @@ public:
 
 private:
 	uint8_t stream_index;
+	float fps;
 
 	vk::raii::Device & device;
 
@@ -121,7 +122,8 @@ private:
 public:
 	decoder(vk::raii::Device & device,
 	        vk::raii::PhysicalDevice & physical_device,
-	        const wivrn::to_headset::video_stream_description & description,
+	        const wivrn::to_headset::video_stream_description::item & description,
+	        float fps,
 	        uint8_t stream_index,
 	        std::weak_ptr<scenes::stream> scene,
 	        shard_accumulator * accumulator);

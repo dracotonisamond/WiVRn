@@ -37,16 +37,33 @@ public:
 
 wivrn::video_encoder_raw::video_encoder_raw(
         wivrn_vk_bundle & vk,
-        const encoder_settings & settings,
+        encoder_settings & settings,
+        float fps,
         uint8_t stream_idx) :
-        video_encoder(stream_idx, settings, std::make_unique<dummy_idr_handler>(), true)
+        video_encoder(stream_idx, settings.channels, std::make_unique<dummy_idr_handler>(), settings.bitrate_multiplier, true)
 {
 	if (settings.bit_depth != 8)
 		throw std::runtime_error("Raw encoding is only supported for 8 bit");
+	rect = vk::Rect2D{
+	        .offset = {
+	                .x = settings.offset_x,
+	                .y = settings.offset_y,
+	        },
+	        .extent = {
+	                .width = settings.width,
+	                .height = settings.height,
+	        },
+	};
 
-	vk::DeviceSize buffer_size = extent.width * extent.height;
-	if (stream_idx < 2)
-		buffer_size += buffer_size / 2;
+	vk::DeviceSize buffer_size = settings.width * settings.height;
+	switch (settings.channels)
+	{
+		case to_headset::video_stream_description::channels_t::colour:
+			buffer_size += buffer_size / 2;
+			break;
+		case to_headset::video_stream_description::channels_t::alpha:
+			break;
+	}
 	for (auto & slot: buffers)
 	{
 		slot = buffer_allocation(
@@ -69,25 +86,33 @@ std::pair<bool, vk::Semaphore> wivrn::video_encoder_raw::present_image(vk::Image
 	        vk::BufferImageCopy{
 	                .imageSubresource = {
 	                        .aspectMask = vk::ImageAspectFlagBits::ePlane0,
-	                        .baseArrayLayer = stream_idx,
+	                        .baseArrayLayer = uint32_t(channels),
 	                        .layerCount = 1,
 	                },
+	                .imageOffset = {
+	                        .x = rect.offset.x,
+	                        .y = rect.offset.y,
+	                },
 	                .imageExtent = {
-	                        .width = extent.width,
-	                        .height = extent.height,
+	                        .width = rect.extent.width,
+	                        .height = rect.extent.height,
 	                        .depth = 1,
 	                },
 	        },
 	        vk::BufferImageCopy{
-	                .bufferOffset = extent.width * extent.height,
+	                .bufferOffset = rect.extent.width * rect.extent.height,
 	                .imageSubresource = {
 	                        .aspectMask = vk::ImageAspectFlagBits::ePlane1,
-	                        .baseArrayLayer = stream_idx,
+	                        .baseArrayLayer = uint32_t(channels),
 	                        .layerCount = 1,
 	                },
+	                .imageOffset = {
+	                        .x = rect.offset.x / 2,
+	                        .y = rect.offset.y / 2,
+	                },
 	                .imageExtent = {
-	                        .width = extent.width / 2,
-	                        .height = extent.height / 2,
+	                        .width = rect.extent.width / 2,
+	                        .height = rect.extent.height / 2,
 	                        .depth = 1,
 	                },
 	        },
@@ -97,7 +122,7 @@ std::pair<bool, vk::Semaphore> wivrn::video_encoder_raw::present_image(vk::Image
 	        vk::ImageLayout::eTransferSrcOptimal,
 	        buffers[slot],
 	        std::span(regions.data(),
-	                  stream_idx == 2 ? 2 : 1));
+	                  channels == to_headset::video_stream_description::channels_t::colour ? 2 : 1));
 	return {false, nullptr};
 }
 

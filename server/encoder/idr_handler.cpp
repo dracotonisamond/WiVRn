@@ -32,22 +32,14 @@ void default_idr_handler::on_feedback(const from_headset::feedback & f)
 	                   [](need_idr) {},
 	                   [](idr_received) {},
 	                   [this, &f](wait_idr_feedback s) {
-		                   if (f.frame_index == s.idr_id)
+		                   if (f.sent_to_decoder and f.frame_index == s.idr_id)
 		                   {
-			                   if (f.sent_to_decoder)
-			                   {
-				                   U_LOG_D("IDR frame received");
-				                   state = idr_received{};
-			                   }
-			                   else
-			                   {
-				                   U_LOG_W("IDR frame dropped");
-				                   state = need_idr{};
-			                   }
+			                   U_LOG_D("IDR frame received");
+			                   state = idr_received{};
 		                   }
 	                   },
 	                   [this, &f](running r) {
-		                   if (not f.sent_to_decoder and f.frame_index >= r.first_p and not is_non_ref_frame(f.frame_index))
+		                   if (not f.sent_to_decoder and f.frame_index >= r.first_p)
 			                   state = need_idr{};
 	                   },
 	           },
@@ -59,7 +51,6 @@ void default_idr_handler::reset()
 	std::unique_lock lock(mutex);
 	U_LOG_D("IDR handler reset");
 	state = need_idr{};
-	non_ref_frames.assign(512, uint64_t(-1));
 }
 
 bool default_idr_handler::should_skip(uint64_t frame_id)
@@ -69,7 +60,6 @@ bool default_idr_handler::should_skip(uint64_t frame_id)
 	                          [this, frame_id](wait_idr_feedback w) {
 		                          if (frame_id > w.idr_id + 100)
 		                          {
-			                          U_LOG_W("IDR frame timeout");
 			                          state = need_idr{};
 			                          return false;
 		                          }
@@ -80,17 +70,6 @@ bool default_idr_handler::should_skip(uint64_t frame_id)
 	                          },
 	                  },
 	                  state);
-}
-
-void default_idr_handler::set_non_ref(uint64_t frame_index)
-{
-	std::unique_lock lock(mutex);
-	non_ref_frames[frame_index % non_ref_frames.size()] = frame_index;
-}
-
-bool default_idr_handler::is_non_ref_frame(uint64_t frame_index)
-{
-	return non_ref_frames[frame_index % non_ref_frames.size()] == frame_index;
 }
 
 default_idr_handler::frame_type default_idr_handler::get_type(uint64_t frame_index)
