@@ -20,7 +20,6 @@
 #pragma once
 
 #ifdef __ANDROID__
-#include "android/hid.h"
 #include <android_native_app_glue.h>
 #endif
 
@@ -82,8 +81,6 @@ class application : public singleton<application>
 #ifdef __ANDROID__
 	ANativeWindow * native_window = nullptr;
 	bool resumed = false;
-
-	android_hid::input_handler input_handler{};
 #endif
 
 	static inline const char engine_name[] = "No engine";

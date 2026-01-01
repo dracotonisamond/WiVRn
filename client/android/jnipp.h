@@ -25,7 +25,6 @@
 #include <tuple>
 
 #include <jni.h>
-#include <type_traits>
 
 namespace jni
 {
@@ -172,9 +171,6 @@ struct type_map<int>
 
 template <typename T>
 using type_map_t = type_map<T>::type;
-
-void handle_java_exception();
-
 } // namespace details
 
 struct klass
@@ -219,17 +215,7 @@ struct klass
 		assert(method_id);
 		auto handles = details::handle(std::forward<Args>(args)...);
 		return R(std::apply([&](auto &... t) {
-			if constexpr (std::is_void_v<R>)
-			{
-				(env.*R1::call_static_method)(*this, method_id, t...);
-				details::handle_java_exception();
-			}
-			else
-			{
-				auto res = (env.*R1::call_static_method)(*this, method_id, t...);
-				details::handle_java_exception();
-				return res;
-			}
+			return (env.*R1::call_static_method)(*this, method_id, t...);
 		},
 		                    handles));
 	}
@@ -297,17 +283,7 @@ struct object
 		assert(method_id);
 		auto handles = details::handle(std::forward<Args>(args)...);
 		return R(std::apply([&](auto &... t) {
-			if constexpr (std::is_void_v<R>)
-			{
-				(env.*R1::call_method)(*this, method_id, t...);
-				details::handle_java_exception();
-			}
-			else
-			{
-				auto res = (env.*R1::call_method)(*this, method_id, t...);
-				details::handle_java_exception();
-				return res;
-			}
+			return (env.*R1::call_method)(*this, method_id, t...);
 		},
 		                    handles));
 	}
@@ -320,17 +296,7 @@ struct object
 		assert(method_id);
 		auto handles = details::handle(std::forward<Args>(args)...);
 		return R(std::apply([&](auto &... t) {
-			if constexpr (std::is_void_v<R>)
-			{
-				(env.*R1::call_method)(*this, method_id, t...);
-				details::handle_java_exception();
-			}
-			else
-			{
-				auto res = (env.*R1::call_method)(*this, method_id, t...);
-				details::handle_java_exception();
-				return res;
-			}
+			return (env.*R1::call_method)(*this, method_id, t...);
 		},
 		                    handles));
 	}
@@ -361,9 +327,7 @@ static object<Type> new_object(Args &&... args)
 	assert(method_id);
 	auto handles = details::handle(std::forward<Args>(args)...);
 	return object<Type>(std::apply([&](auto &... t) {
-		auto res = env.NewObject(klass, method_id, t...);
-		details::handle_java_exception();
-		return res;
+		return env.NewObject(klass, method_id, t...);
 	},
 	                               handles));
 }

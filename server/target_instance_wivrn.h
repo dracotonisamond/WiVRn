@@ -26,7 +26,6 @@ namespace wivrn
 class wivrn_session;
 class instance : public xrt_instance
 {
-	xrt_result_t is_system_available(bool *);
 	xrt_result_t create_system(
 	        xrt_system **,
 	        xrt_system_devices **,
@@ -36,7 +35,6 @@ class instance : public xrt_instance
 	xrt_result_t get_prober(xrt_prober **);
 
 	wivrn_session * session = nullptr;
-	ipc_server * server = nullptr;
 
 public:
 	using base = xrt_instance;

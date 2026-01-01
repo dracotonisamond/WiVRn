@@ -157,13 +157,16 @@ vk::VideoFormatPropertiesKHR wivrn::video_encoder_vulkan::select_video_format(
 
 wivrn::video_encoder_vulkan::video_encoder_vulkan(
         wivrn_vk_bundle & vk,
+        vk::Rect2D rect,
         const vk::VideoCapabilitiesKHR & video_caps,
         const vk::VideoEncodeCapabilitiesKHR & in_encode_caps,
+        float fps,
         uint8_t stream_idx,
         const encoder_settings & settings) :
-        video_encoder(stream_idx, settings, std::make_unique<dpb_state>(), true),
+        video_encoder(stream_idx, settings.channels, std::make_unique<dpb_state>(), settings.bitrate_multiplier, true),
         vk(vk),
         encode_caps(patch_capabilities(in_encode_caps)),
+        rect(rect),
         num_dpb_slots(std::min(video_caps.maxDpbSlots, 16u))
 {
 	// Initialize Rate control
@@ -189,7 +192,7 @@ wivrn::video_encoder_vulkan::video_encoder_vulkan(
 	rate_control_layer = vk::VideoEncodeRateControlLayerInfoKHR{
 	        .averageBitrate = std::min(settings.bitrate, encode_caps.maxBitrate),
 	        .maxBitrate = std::min(2 * settings.bitrate, encode_caps.maxBitrate),
-	        .frameRateNumerator = uint32_t(settings.fps * 1'000'000),
+	        .frameRateNumerator = uint32_t(fps * 1'000'000),
 	        .frameRateDenominator = 1'000'000,
 	};
 	rate_control = vk::VideoEncodeRateControlInfoKHR{
@@ -221,8 +224,8 @@ wivrn::video_encoder_vulkan::video_encoder_vulkan(
 	        std::max(video_caps.pictureAccessGranularity.height, encode_caps.encodeInputPictureGranularity.height);
 
 	aligned_extent = vk::Extent3D{
-	        .width = align(extent.width, std::max(cb_min_size, granWidth)),
-	        .height = align(extent.height, std::max(cb_min_size, granHeight)),
+	        .width = align(rect.extent.width, std::max(cb_min_size, granWidth)),
+	        .height = align(rect.extent.height, std::max(cb_min_size, granHeight)),
 	        .depth = 1,
 	};
 }
@@ -288,7 +291,7 @@ void wivrn::video_encoder_vulkan::init(const vk::VideoCapabilitiesKHR & video_ca
 	for (auto & item: slot_data)
 	{
 		// very conservative bound
-		size_t output_buffer_size = extent.width * extent.height * 3;
+		size_t output_buffer_size = rect.extent.width * rect.extent.height * 3;
 		output_buffer_size = align(output_buffer_size, video_caps.minBitstreamBufferSizeAlignment);
 		item.output_buffer = buffer_allocation(
 		        vk.device,
@@ -368,11 +371,11 @@ void wivrn::video_encoder_vulkan::init(const vk::VideoCapabilitiesKHR & video_ca
 	        .subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor,
 	                             .baseMipLevel = 0,
 	                             .levelCount = 1,
-	                             .baseArrayLayer = stream_idx,
+	                             .baseArrayLayer = uint32_t(channels),
 	                             .layerCount = 1},
 	};
 
-	if (not vk.vk.features.video_maintenance_1)
+	if (rect.offset != vk::Offset2D{0, 0} or not vk.vk.features.video_maintenance_1)
 	{
 		image_view_template.subresourceRange.baseArrayLayer = 0;
 		for (size_t i = 0; i < num_slots; ++i)
@@ -383,8 +386,8 @@ void wivrn::video_encoder_vulkan::init(const vk::VideoCapabilitiesKHR & video_ca
 			                           .imageType = vk::ImageType::e2D,
 			                           .format = picture_format.format,
 			                           .extent = {
-			                                   .width = extent.width,
-			                                   .height = extent.height,
+			                                   .width = rect.extent.width,
+			                                   .height = rect.extent.height,
 			                                   .depth = 1,
 			                           },
 			                           .mipLevels = 1,
@@ -441,7 +444,7 @@ void wivrn::video_encoder_vulkan::init(const vk::VideoCapabilitiesKHR & video_ca
 			dpb.items.push_back({
 			        .image_view = std::move(v),
 			        .resource = {
-			                .codedExtent = extent,
+			                .codedExtent = rect.extent,
 			                .imageViewBinding = v1,
 			        },
 			        .info = dpb.infos[i],
@@ -647,8 +650,13 @@ std::pair<bool, vk::Semaphore> wivrn::video_encoder_vulkan::present_image(vk::Im
 		                vk::ImageCopy{
 		                        .srcSubresource = {
 		                                .aspectMask = vk::ImageAspectFlagBits::ePlane0,
-		                                .baseArrayLayer = stream_idx,
+		                                .baseArrayLayer = uint32_t(channels),
 		                                .layerCount = 1,
+		                        },
+		                        .srcOffset = {
+		                                .x = rect.offset.x,
+		                                .y = rect.offset.y,
+		                                .z = 0,
 		                        },
 		                        .dstSubresource = {
 		                                .aspectMask = vk::ImageAspectFlagBits::ePlane0,
@@ -656,16 +664,21 @@ std::pair<bool, vk::Semaphore> wivrn::video_encoder_vulkan::present_image(vk::Im
 		                                .layerCount = 1,
 		                        },
 		                        .extent = {
-		                                .width = extent.width,
-		                                .height = extent.height,
+		                                .width = rect.extent.width,
+		                                .height = rect.extent.height,
 		                                .depth = 1,
 		                        },
 		                },
 		                vk::ImageCopy{
 		                        .srcSubresource = {
 		                                .aspectMask = vk::ImageAspectFlagBits::ePlane1,
-		                                .baseArrayLayer = stream_idx,
+		                                .baseArrayLayer = uint32_t(channels),
 		                                .layerCount = 1,
+		                        },
+		                        .srcOffset = {
+		                                .x = rect.offset.x / 2,
+		                                .y = rect.offset.y / 2,
+		                                .z = 0,
 		                        },
 		                        .dstSubresource = {
 		                                .aspectMask = vk::ImageAspectFlagBits::ePlane1,
@@ -673,8 +686,8 @@ std::pair<bool, vk::Semaphore> wivrn::video_encoder_vulkan::present_image(vk::Im
 		                                .layerCount = 1,
 		                        },
 		                        .extent = {
-		                                .width = extent.width / 2,
-		                                .height = extent.height / 2,
+		                                .width = rect.extent.width / 2,
+		                                .height = rect.extent.height / 2,
 		                                .depth = 1,
 		                        },
 		                },

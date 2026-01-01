@@ -23,14 +23,8 @@
 
 struct file_picker_result
 {
-	bool accepted = false;
 	std::filesystem::path path;
 	utils::mapped_file file;
-
-	operator bool() const
-	{
-		return accepted;
-	}
 };
 
 class file_picker

@@ -27,7 +27,6 @@
 #include <QDBusMetaType>
 #include <QDBusReply>
 #include <QDebug>
-#include <QProcess>
 #include <filesystem>
 #include <string>
 

@@ -15,7 +15,6 @@ add_executable(wivrn-dashboard
     dashboard_utils.cpp
     escape_string.cpp
     settings.cpp
-    steam.cpp
     adb.cpp
     apk_installer.cpp
     firewall.cpp
@@ -78,6 +77,10 @@ target_link_libraries(wivrn-dashboard
     wivrn-common-server
     wivrn-external
 )
+
+if (WIVRN_CHECK_CAPSYSNICE)
+    target_link_libraries(wivrn-dashboard PRIVATE PkgConfig::libcap)
+endif()
 
 install(TARGETS wivrn-dashboard ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
 

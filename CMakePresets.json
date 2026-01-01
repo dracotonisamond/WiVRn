@@ -90,7 +90,6 @@
 			"inherits": "everything",
 			"binaryDir": "${sourceDir}/build-no-systemd",
 			"cacheVariables": {
-				"WIVRN_BUILD_WIVRNCTL": "OFF",
 				"WIVRN_USE_SYSTEMD": "OFF"
 			}
 		},
@@ -109,7 +108,6 @@
 			"inherits": "server",
 			"binaryDir": "${sourceDir}/build-server-no-systemd",
 			"cacheVariables": {
-				"WIVRN_BUILD_WIVRNCTL": "OFF",
 				"WIVRN_USE_SYSTEMD": "OFF"
 			}
 		},

@@ -32,12 +32,11 @@ struct raw_blit_handle : public wivrn::decoder::blit_handle
 	        const wivrn::to_headset::video_stream_data_shard::view_info_t & view_info,
 	        vk::ImageView image_view,
 	        vk::Image image,
-	        vk::Extent2D extent,
 	        vk::ImageLayout & current_layout,
 	        vk::Semaphore semaphore,
 	        uint64_t & semaphore_val,
 	        std::atomic_bool & free) :
-	        wivrn::decoder::blit_handle{feedback, view_info, image_view, image, extent, current_layout, semaphore, &semaphore_val},
+	        wivrn::decoder::blit_handle{feedback, view_info, image_view, image, current_layout, semaphore, &semaphore_val},
 	        free(free) {}
 	~raw_blit_handle()
 	{
@@ -47,7 +46,8 @@ struct raw_blit_handle : public wivrn::decoder::blit_handle
 
 vk::raii::Sampler make_sampler(
         vk::raii::Device & device,
-        vk::SamplerYcbcrConversion ycbcr_conversion)
+        vk::raii::SamplerYcbcrConversion & ycbcr_conversion,
+        to_headset::video_stream_description::channels_t channels)
 {
 	vk::StructureChain info{
 	        vk::SamplerCreateInfo{
@@ -60,11 +60,17 @@ vk::raii::Sampler make_sampler(
 	                .maxAnisotropy = 1,
 	        },
 	        vk::SamplerYcbcrConversionInfo{
-	                .conversion = ycbcr_conversion,
+	                .conversion = *ycbcr_conversion,
 	        },
 	};
-	if (ycbcr_conversion == VK_NULL_HANDLE)
-		info.unlink<vk::SamplerYcbcrConversionInfo>();
+	switch (channels)
+	{
+		case wivrn::to_headset::video_stream_description::channels_t::colour:
+			break;
+		case wivrn::to_headset::video_stream_description::channels_t::alpha:
+			info.unlink<vk::SamplerYcbcrConversionInfo>();
+			break;
+	}
 	return vk::raii::Sampler(device, info.get());
 }
 } // namespace
@@ -75,18 +81,20 @@ raw_decoder::raw_decoder(
         vk::raii::Device & device,
         vk::raii::PhysicalDevice & physical_device,
         uint32_t vk_queue_family_index,
-        const wivrn::to_headset::video_stream_description & description,
+        const wivrn::to_headset::video_stream_description::item & description,
         uint8_t stream_index,
         std::weak_ptr<scenes::stream> scene,
         shard_accumulator * accumulator) :
+        decoder(description),
         device(device),
-        ycbcr_conversion(stream_index == 2 ? nullptr : vk::raii::SamplerYcbcrConversion(device, {
-                                                                                                        .format = vk::Format::eG8B8R82Plane420Unorm,
-                                                                                                        .ycbcrModel = vk::SamplerYcbcrModelConversion::eYcbcr709,
-                                                                                                        .ycbcrRange = vk::SamplerYcbcrRange::eItuFull,
-                                                                                                        .chromaFilter = vk::Filter::eNearest,
-                                                                                                })),
-        sampler_(make_sampler(device, *ycbcr_conversion)),
+        ycbcr_conversion(device,
+                         {
+                                 .format = vk::Format::eG8B8R82Plane420Unorm,
+                                 .ycbcrModel = vk::SamplerYcbcrModelConversion(description.color_model.value_or(VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_709)),
+                                 .ycbcrRange = vk::SamplerYcbcrRange(description.range.value_or(VK_SAMPLER_YCBCR_RANGE_ITU_FULL)),
+                                 .chromaFilter = vk::Filter::eNearest,
+                         }),
+        sampler_(make_sampler(device, ycbcr_conversion, description.channels)),
         command_pool(device, vk::CommandPoolCreateInfo{
                                      .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer,
                                      .queueFamilyIndex = vk_queue_family_index,
@@ -97,24 +105,22 @@ raw_decoder::raw_decoder(
         })[0]
                     .release()),
         fence(device, vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled}),
-        stream_index(stream_index),
-        extent{
-                .width = description.width,
-                .height = description.height / (stream_index == 2 ? 2u : 1u),
-        },
         weak_scene(scene),
         accumulator(accumulator)
 {
-	vk::DeviceSize buffer_size = extent.width * extent.height;
+	extent_ = vk::Extent2D{
+	        .width = description.width,
+	        .height = description.height,
+	};
+	vk::DeviceSize buffer_size = description.width * description.height;
 	vk::Format format{};
-	switch (stream_index)
+	switch (description.channels)
 	{
-		case 0: // colour left
-		case 1: // colour right
-			buffer_size += buffer_size / 2;
+		case to_headset::video_stream_description::channels_t::colour:
+			buffer_size += (description.width * description.height) / 2;
 			format = vk::Format::eG8B8R82Plane420Unorm;
 			break;
-		case 2: // alpha (monochrome)
+		case to_headset::video_stream_description::channels_t::alpha:
 			format = vk::Format::eR8Unorm;
 			break;
 	}
@@ -142,8 +148,8 @@ raw_decoder::raw_decoder(
 		                .imageType = vk::ImageType::e2D,
 		                .format = format,
 		                .extent = {
-		                        .width = extent.width,
-		                        .height = extent.height,
+		                        .width = description.width,
+		                        .height = description.height,
 		                        .depth = 1,
 		                },
 		                .mipLevels = 1,
@@ -214,7 +220,6 @@ void raw_decoder::frame_completed(
 	        view_info,
 	        *item->view_full,
 	        item->image,
-	        extent,
 	        item->current_layout,
 	        *item->semaphore,
 	        item->semaphore_val,
@@ -258,20 +263,20 @@ void raw_decoder::frame_completed(
 	                        .layerCount = 1,
 	                },
 	                .imageExtent = {
-	                        .width = extent.width,
-	                        .height = extent.height,
+	                        .width = description.width,
+	                        .height = description.height,
 	                        .depth = 1,
 	                },
 	        },
 	        vk::BufferImageCopy{
-	                .bufferOffset = vk::DeviceSize(extent.width * extent.height),
+	                .bufferOffset = vk::DeviceSize(description.width * description.height),
 	                .imageSubresource = {
 	                        .aspectMask = vk::ImageAspectFlagBits::ePlane1,
 	                        .layerCount = 1,
 	                },
 	                .imageExtent = {
-	                        .width = extent.width / 2u,
-	                        .height = extent.height / 2u,
+	                        .width = description.width / 2u,
+	                        .height = description.height / 2u,
 	                        .depth = 1,
 	                },
 	        },
@@ -281,7 +286,7 @@ void raw_decoder::frame_completed(
 	        input[0],
 	        item->image,
 	        item->current_layout,
-	        stream_index ? 2 : 1,
+	        description.channels == to_headset::video_stream_description::channels_t::colour ? 2 : 1,
 	        regions.data());
 
 	vk::ImageMemoryBarrier barrier{

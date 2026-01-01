@@ -66,6 +66,7 @@ class video_encoder_vulkan : public video_encoder
 	        const vk::PhysicalDeviceVideoFormatInfoKHR &);
 
 	bool session_initialized = false;
+	const vk::Rect2D rect;
 
 protected:
 	const uint8_t num_dpb_slots;
@@ -74,8 +75,10 @@ protected:
 	std::optional<vk::VideoEncodeRateControlInfoKHR> rate_control;
 
 	video_encoder_vulkan(wivrn_vk_bundle & vk,
+	                     vk::Rect2D rect,
 	                     const vk::VideoCapabilitiesKHR & video_caps,
 	                     const vk::VideoEncodeCapabilitiesKHR & encode_caps,
+	                     float fps,
 	                     uint8_t stream_idx,
 	                     const encoder_settings & settings);
 

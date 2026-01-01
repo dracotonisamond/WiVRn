@@ -214,8 +214,8 @@ msgstr "Çözünürlük ölçeği"
 
 #: client/scenes/lobby_gui.cpp:655
 #, c-format, c++-format
-msgid "{}%% - {}x{} per eye"
-msgstr "göz başına {}%% - {}x{}"
+msgid "%d%% - {}x{} per eye"
+msgstr "göz başına %d%% - {}x{}"
 
 #: client/scenes/lobby_gui.cpp:666
 #, c++-format
@@ -500,8 +500,8 @@ msgstr ""
 
 #: client/scenes/lobby_gui_customize.cpp:552
 #, c-format
-msgid "Really delete {}?"
-msgstr "{} gerçekten silinsin mi?"
+msgid "Really delete %s?"
+msgstr "%s gerçekten silinsin mi?"
 
 #: client/scenes/lobby_gui_customize.cpp:556
 msgid "Delete"

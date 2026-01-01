@@ -18,7 +18,6 @@
  */
 
 #include "scene.h"
-
 #include "application.h"
 #include "render/scene_components.h"
 #include "utils/contains.h"
@@ -612,28 +611,3 @@ void scene::remove(entt::entity entity)
 void scene::on_unfocused() {}
 void scene::on_focused() {}
 void scene::on_xr_event(const xr::event &) {}
-
-bool scene::on_input_key_down(uint8_t key_code)
-{
-	return false;
-}
-bool scene::on_input_key_up(uint8_t key_code)
-{
-	return false;
-}
-bool scene::on_input_mouse_move(float x, float y)
-{
-	return false;
-}
-bool scene::on_input_button_down(uint8_t button)
-{
-	return false;
-}
-bool scene::on_input_button_up(uint8_t button)
-{
-	return false;
-}
-bool scene::on_input_scroll(float h, float v)
-{
-	return false;
-}

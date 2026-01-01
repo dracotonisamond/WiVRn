@@ -90,9 +90,9 @@ wivrn_hmd::wivrn_hmd(wivrn::wivrn_session * cnx,
 {
 	const auto config = configuration();
 
-	auto eye_width = info.render_eye_width;
+	auto eye_width = info.recommended_eye_width;
 	eye_width = ((eye_width + 3) / 4) * 4;
-	auto eye_height = info.render_eye_height;
+	auto eye_height = info.recommended_eye_height;
 	eye_height = ((eye_height + 3) / 4) * 4;
 
 	// Setup info.
@@ -103,7 +103,7 @@ wivrn_hmd::wivrn_hmd(wivrn::wivrn_session * cnx,
 
 	hmd->distortion.models = XRT_DISTORTION_MODEL_NONE;
 	hmd->distortion.preferred = XRT_DISTORTION_MODEL_NONE;
-	hmd->screens[0].w_pixels = eye_width;
+	hmd->screens[0].w_pixels = eye_width * 2;
 	hmd->screens[0].h_pixels = eye_height;
 
 	// Left
@@ -157,7 +157,6 @@ xrt_result_t wivrn_hmd::get_presence(bool * out_presence)
 
 xrt_result_t wivrn_hmd::get_view_poses(const xrt_vec3 * default_eye_relation,
                                        int64_t at_timestamp_ns,
-                                       xrt_view_type view_type,
                                        uint32_t view_count,
                                        xrt_space_relation * out_head_relation,
                                        xrt_fov * out_fovs,
@@ -208,17 +207,19 @@ xrt_result_t wivrn_hmd::get_battery_status(bool * out_present,
 
 void wivrn_hmd::set_foveated_size(uint32_t width, uint32_t height)
 {
+	assert(width % 2 == 0);
+	uint32_t eye_width = width / 2;
+
 	hmd->screens[0].w_pixels = width;
 	hmd->screens[0].h_pixels = height;
 
 	for (int i = 0; i < 2; ++i)
 	{
 		auto & view = hmd->views[i];
-		// offset is only applicable for alpha channel
-		view.viewport.x_pixels = i * width;
+		view.viewport.x_pixels = i * eye_width;
 		view.viewport.y_pixels = 0;
 
-		view.viewport.w_pixels = width;
+		view.viewport.w_pixels = eye_width;
 		view.viewport.h_pixels = height;
 	}
 }
